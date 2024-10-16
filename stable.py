@@ -31,7 +31,7 @@ def process_audio(audio_data, samplerate):
         print(f"Audio data padded to {required_length} samples")
 
     # Generate the spectrogram
-    _, _, spec = spectrogram(audio_data, samplerate, nperseg=min(256, len(audio_data)))
+    _, _, spec = spectrogram(audio_data, samplerate, nperseg=min(512, len(audio_data)))
     print(f"Spectrogram shape: {spec.shape}")
 
     # Flatten the spectrogram and ensure it matches the required length
@@ -43,9 +43,10 @@ def process_audio(audio_data, samplerate):
     # Normalize the spectrogram
     max_val = np.max(flat_spec)
     min_val = np.min(flat_spec)
-    if max_val != min_val:  # Prevent division by zero or very small range
+    if max_val > min_val:
         flat_spec = (flat_spec - min_val) / (max_val - min_val + 1e-9)
-        print("Spectrogram normalized")
+        flat_spec = np.clip(flat_spec, 0, 1)  # Clip to ensure stability
+        print("Spectrogram normalized and clipped")
     else:
         print("Warning: Spectrogram has zero variation. Skipping normalization.")
 
@@ -92,10 +93,15 @@ def predict():
         interpreter.invoke()
         prediction = interpreter.get_tensor(interpreter.get_output_details()[0]['index'])
         print(f"Model prediction output: {prediction}")
-        
+
+        # Introduce a detection threshold to filter predictions
+        detection_threshold = 0.3
         if np.any(np.isnan(prediction)):
             print("Warning: Model returned NaN values. Check input normalization or model parameters.")
             predicted_label = "Error: Model returned NaN values"
+        elif np.max(prediction) < detection_threshold:
+            print(f"Prediction confidence below threshold ({detection_threshold}). Returning 'Unknown'.")
+            predicted_label = "Unknown"
         else:
             predicted_label = labels[np.argmax(prediction)]
             print(f"Predicted label: {predicted_label}")
