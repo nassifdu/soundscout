@@ -25,11 +25,8 @@ def process_audio(audio_data, samplerate):
     # Debugging: Log initial audio data length
     print(f"Initial audio data length: {len(audio_data)}")
 
-    # Pad or trim raw audio data to ensure it matches the required length
-    if len(audio_data) > required_length:
-        audio_data = audio_data[:required_length]
-        print(f"Audio data trimmed to {required_length} samples")
-    elif len(audio_data) < required_length:
+    # Pad raw audio data if it is shorter than the required length
+    if len(audio_data) < required_length:
         audio_data = np.pad(audio_data, (0, required_length - len(audio_data)), mode='constant')
         print(f"Audio data padded to {required_length} samples")
 
@@ -39,10 +36,7 @@ def process_audio(audio_data, samplerate):
 
     # Flatten the spectrogram and ensure it matches the required length
     flat_spec = spec.flatten()
-    if len(flat_spec) > required_length:
-        flat_spec = flat_spec[:required_length]
-        print(f"Spectrogram flattened and trimmed to {required_length} values")
-    elif len(flat_spec) < required_length:
+    if len(flat_spec) < required_length:
         flat_spec = np.pad(flat_spec, (0, required_length - len(flat_spec)), mode='constant')
         print(f"Spectrogram flattened and padded to {required_length} values")
 
