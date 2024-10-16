@@ -3,6 +3,9 @@ import numpy as np
 import tensorflow as tf
 import soundfile as sf
 from scipy.signal import spectrogram
+from pydub import AudioSegment
+import tempfile
+import os
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -27,18 +30,39 @@ def process_audio(audio_data, samplerate):
 def predict():
     if 'file' not in request.files:
         return jsonify({"error": "No file provided"}), 400
-    
+
+    # Save the uploaded .3gp file to a temporary file
     file = request.files['file']
-    audio_data, samplerate = sf.read(file)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".3gp") as temp_3gp:
+        file.save(temp_3gp.name)
     
-    # Process and make prediction
-    input_data = process_audio(audio_data, samplerate)
-    interpreter.set_tensor(interpreter.get_input_details()[0]['index'], input_data)
-    interpreter.invoke()
-    prediction = interpreter.get_tensor(interpreter.get_output_details()[0]['index'])
-    predicted_label = labels[np.argmax(prediction)]
+    try:
+        # Convert .3gp to .wav using Pydub
+        audio = AudioSegment.from_file(temp_3gp.name, format='3gp')
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_wav:
+            audio.export(temp_wav.name, format='wav')
+            wav_path = temp_wav.name
+        
+        # Read the converted .wav file using soundfile
+        audio_data, samplerate = sf.read(wav_path)
+
+        # Process and make prediction
+        input_data = process_audio(audio_data, samplerate)
+        interpreter.set_tensor(interpreter.get_input_details()[0]['index'], input_data)
+        interpreter.invoke()
+        prediction = interpreter.get_tensor(interpreter.get_output_details()[0]['index'])
+        predicted_label = labels[np.argmax(prediction)]
     
-    return jsonify({"prediction": predicted_label})
+        return jsonify({"prediction": predicted_label})
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to process audio: {str(e)}"}), 500
+
+    finally:
+        # Clean up temporary files
+        os.remove(temp_3gp.name)
+        if 'wav_path' in locals():
+            os.remove(wav_path)
 
 # Run the app on your local machine
 if __name__ == '__main__':
