@@ -3,7 +3,6 @@ import numpy as np
 import tensorflow as tf
 import soundfile as sf
 from scipy.signal import spectrogram
-from pydub import AudioSegment
 import tempfile
 import os
 import ffmpeg
@@ -26,13 +25,14 @@ def process_audio(audio_data, samplerate):
     _, _, spec = spectrogram(audio_data, samplerate, nperseg=min(256, len(audio_data)))
     return np.expand_dims(spec.flatten()[:44032], axis=0).astype(np.float32)
 
-# Convert 3gp to wav using ffmpeg-python
-def convert_3gp_to_wav(input_path, output_path):
+# Convert 3gp to mp3 using ffmpeg-python
+def convert_3gp_to_mp3(input_path, output_path):
     try:
-        ffmpeg.input(input_path).output(output_path).run()
+        ffmpeg.input(input_path).output(output_path).overwrite_output().run(capture_stdout=True, capture_stderr=True)
         print(f"Conversion successful! Saved as: {output_path}")
     except ffmpeg.Error as e:
         print(f"Error occurred during conversion: {e.stderr.decode()}")
+        raise e
 
 # Define a route for POST requests
 @app.route('/predict', methods=['POST'])
@@ -46,13 +46,15 @@ def predict():
         file.save(temp_3gp.name)
     
     try:
-        # Convert .3gp to .wav
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_wav:
-            convert_3gp_to_wav(temp_3gp.name, temp_wav.name)
-            wav_path = temp_wav.name
+        # Convert .3gp to .mp3 using a unique temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_mp3:
+            mp3_path = temp_mp3.name
 
-        # Read the converted .wav file using soundfile
-        audio_data, samplerate = sf.read(wav_path)
+        # Perform the conversion
+        convert_3gp_to_mp3(temp_3gp.name, mp3_path)
+
+        # Read the converted .mp3 file using soundfile
+        audio_data, samplerate = sf.read(mp3_path)
 
         # Process and make prediction
         input_data = process_audio(audio_data, samplerate)
@@ -69,8 +71,8 @@ def predict():
     finally:
         # Clean up temporary files
         os.remove(temp_3gp.name)
-        if 'wav_path' in locals():
-            os.remove(wav_path)
+        if 'mp3_path' in locals() and os.path.exists(mp3_path):
+            os.remove(mp3_path)
 
 # Run the app on your local machine
 if __name__ == '__main__':
