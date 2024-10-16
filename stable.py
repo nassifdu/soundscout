@@ -22,21 +22,34 @@ with open("labels.txt", "r") as f:
 def process_audio(audio_data, samplerate):
     required_length = 44032
 
+    # Debugging: Log initial audio data length
+    print(f"Initial audio data length: {len(audio_data)}")
+
     # Pad or trim raw audio data to ensure it matches the required length
     if len(audio_data) > required_length:
         audio_data = audio_data[:required_length]
+        print(f"Audio data trimmed to {required_length} samples")
     elif len(audio_data) < required_length:
         audio_data = np.pad(audio_data, (0, required_length - len(audio_data)), mode='constant')
+        print(f"Audio data padded to {required_length} samples")
 
     # Generate the spectrogram
     _, _, spec = spectrogram(audio_data, samplerate, nperseg=min(256, len(audio_data)))
+    print(f"Spectrogram shape: {spec.shape}")
 
     # Flatten the spectrogram and ensure it matches the required length
     flat_spec = spec.flatten()
     if len(flat_spec) > required_length:
         flat_spec = flat_spec[:required_length]
+        print(f"Spectrogram flattened and trimmed to {required_length} values")
     elif len(flat_spec) < required_length:
         flat_spec = np.pad(flat_spec, (0, required_length - len(flat_spec)), mode='constant')
+        print(f"Spectrogram flattened and padded to {required_length} values")
+
+    # Normalize the spectrogram
+    if np.max(flat_spec) != 0:  # Prevent division by zero
+        flat_spec = (flat_spec - np.min(flat_spec)) / (np.max(flat_spec) - np.min(flat_spec) + 1e-9)
+        print("Spectrogram normalized")
 
     # Return the processed audio data as a tensor input for the model
     return np.expand_dims(flat_spec, axis=0).astype(np.float32)
@@ -60,6 +73,7 @@ def predict():
     file = request.files['file']
     with tempfile.NamedTemporaryFile(delete=False, suffix=".3gp") as temp_3gp:
         file.save(temp_3gp.name)
+        print(f"Uploaded file saved as: {temp_3gp.name}")
     
     try:
         # Convert .3gp to .mp3 using a unique temporary file
@@ -71,24 +85,31 @@ def predict():
 
         # Read the converted .mp3 file using soundfile
         audio_data, samplerate = sf.read(mp3_path)
+        print(f"Audio data read from mp3 file. Samplerate: {samplerate}, Length: {len(audio_data)}")
 
         # Process and make prediction
         input_data = process_audio(audio_data, samplerate)
+        print(f"Input data shape for model: {input_data.shape}")
         interpreter.set_tensor(interpreter.get_input_details()[0]['index'], input_data)
         interpreter.invoke()
         prediction = interpreter.get_tensor(interpreter.get_output_details()[0]['index'])
+        print(f"Model prediction output: {prediction}")
         predicted_label = labels[np.argmax(prediction)]
+        print(f"Predicted label: {predicted_label}")
     
         return jsonify({"prediction": predicted_label})
 
     except Exception as e:
+        print(f"Error during prediction: {str(e)}")
         return jsonify({"error": f"Failed to process audio: {str(e)}"}), 500
 
     finally:
         # Clean up temporary files
         os.remove(temp_3gp.name)
+        print(f"Deleted temporary file: {temp_3gp.name}")
         if 'mp3_path' in locals() and os.path.exists(mp3_path):
             os.remove(mp3_path)
+            print(f"Deleted temporary file: {mp3_path}")
 
 # Run the app on your local machine
 if __name__ == '__main__':
