@@ -20,10 +20,26 @@ with open("labels.txt", "r") as f:
 
 # Preprocess audio for model input
 def process_audio(audio_data, samplerate):
-    if len(audio_data) < samplerate:
-        audio_data = np.pad(audio_data, (0, max(0, samplerate - len(audio_data))), mode='constant')
+    required_length = 44032
+
+    # Pad or trim raw audio data to ensure it matches the required length
+    if len(audio_data) > required_length:
+        audio_data = audio_data[:required_length]
+    elif len(audio_data) < required_length:
+        audio_data = np.pad(audio_data, (0, required_length - len(audio_data)), mode='constant')
+
+    # Generate the spectrogram
     _, _, spec = spectrogram(audio_data, samplerate, nperseg=min(256, len(audio_data)))
-    return np.expand_dims(spec.flatten()[:44032], axis=0).astype(np.float32)
+
+    # Flatten the spectrogram and ensure it matches the required length
+    flat_spec = spec.flatten()
+    if len(flat_spec) > required_length:
+        flat_spec = flat_spec[:required_length]
+    elif len(flat_spec) < required_length:
+        flat_spec = np.pad(flat_spec, (0, required_length - len(flat_spec)), mode='constant')
+
+    # Return the processed audio data as a tensor input for the model
+    return np.expand_dims(flat_spec, axis=0).astype(np.float32)
 
 # Convert 3gp to mp3 using ffmpeg-python
 def convert_3gp_to_mp3(input_path, output_path):
@@ -34,6 +50,7 @@ def convert_3gp_to_mp3(input_path, output_path):
         print(f"Error occurred during conversion: {e.stderr.decode()}")
         raise e
 
+# Define a route for POST requests
 @app.route('/predict', methods=['POST'])
 def predict():
     if 'file' not in request.files:
