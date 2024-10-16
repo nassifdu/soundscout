@@ -6,6 +6,7 @@ from scipy.signal import spectrogram
 from pydub import AudioSegment
 import tempfile
 import os
+import ffmpeg
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -25,6 +26,14 @@ def process_audio(audio_data, samplerate):
     _, _, spec = spectrogram(audio_data, samplerate, nperseg=min(256, len(audio_data)))
     return np.expand_dims(spec.flatten()[:44032], axis=0).astype(np.float32)
 
+# Convert 3gp to wav using ffmpeg-python
+def convert_3gp_to_wav(input_path, output_path):
+    try:
+        ffmpeg.input(input_path).output(output_path).run()
+        print(f"Conversion successful! Saved as: {output_path}")
+    except ffmpeg.Error as e:
+        print(f"Error occurred during conversion: {e.stderr.decode()}")
+
 # Define a route for POST requests
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -37,12 +46,11 @@ def predict():
         file.save(temp_3gp.name)
     
     try:
-        # Convert .3gp to .wav using Pydub
-        audio = AudioSegment.from_file(temp_3gp.name, format='3gp')
+        # Convert .3gp to .wav
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_wav:
-            audio.export(temp_wav.name, format='wav')
+            convert_3gp_to_wav(temp_3gp.name, temp_wav.name)
             wav_path = temp_wav.name
-        
+
         # Read the converted .wav file using soundfile
         audio_data, samplerate = sf.read(wav_path)
 
