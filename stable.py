@@ -20,10 +20,13 @@ with open("labels.txt", "r") as f:
 
 # Preprocess audio for model input
 def process_audio(audio_data, samplerate):
-    required_length = 44032
-
     # Debugging: Log initial audio data length
     print(f"Initial audio data length: {len(audio_data)}")
+
+    # Calculate the required length dynamically based on the input tensor shape
+    input_details = interpreter.get_input_details()
+    required_length = input_details[0]['shape'][1]
+    print(f"Required input length for model: {required_length}")
 
     # Pad raw audio data if it is shorter than the required length
     if len(audio_data) < required_length:
@@ -34,11 +37,17 @@ def process_audio(audio_data, samplerate):
     _, _, spec = spectrogram(audio_data, samplerate, nperseg=min(256, len(audio_data)))
     print(f"Spectrogram shape: {spec.shape}")
 
-    # Flatten the spectrogram and ensure it matches the required length
+    # Flatten the spectrogram
     flat_spec = spec.flatten()
+    print(f"Flattened spectrogram length: {len(flat_spec)}")
+
+    # Pad or trim the flattened spectrogram to match the model input requirement
     if len(flat_spec) < required_length:
         flat_spec = np.pad(flat_spec, (0, required_length - len(flat_spec)), mode='constant')
         print(f"Spectrogram flattened and padded to {required_length} values")
+    elif len(flat_spec) > required_length:
+        flat_spec = flat_spec[:required_length]
+        print(f"Spectrogram flattened and trimmed to {required_length} values")
 
     # Normalize the spectrogram
     max_val = np.max(flat_spec)
