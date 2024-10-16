@@ -34,7 +34,6 @@ def convert_3gp_to_mp3(input_path, output_path):
         print(f"Error occurred during conversion: {e.stderr.decode()}")
         raise e
 
-# Define a route for POST requests
 @app.route('/predict', methods=['POST'])
 def predict():
     if 'file' not in request.files:
