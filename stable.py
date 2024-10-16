@@ -41,9 +41,13 @@ def process_audio(audio_data, samplerate):
         print(f"Spectrogram flattened and padded to {required_length} values")
 
     # Normalize the spectrogram
-    if np.max(flat_spec) != 0:  # Prevent division by zero
-        flat_spec = (flat_spec - np.min(flat_spec)) / (np.max(flat_spec) - np.min(flat_spec) + 1e-9)
+    max_val = np.max(flat_spec)
+    min_val = np.min(flat_spec)
+    if max_val != min_val:  # Prevent division by zero or very small range
+        flat_spec = (flat_spec - min_val) / (max_val - min_val + 1e-9)
         print("Spectrogram normalized")
+    else:
+        print("Warning: Spectrogram has zero variation. Skipping normalization.")
 
     # Return the processed audio data as a tensor input for the model
     return np.expand_dims(flat_spec, axis=0).astype(np.float32)
@@ -88,8 +92,13 @@ def predict():
         interpreter.invoke()
         prediction = interpreter.get_tensor(interpreter.get_output_details()[0]['index'])
         print(f"Model prediction output: {prediction}")
-        predicted_label = labels[np.argmax(prediction)]
-        print(f"Predicted label: {predicted_label}")
+        
+        if np.any(np.isnan(prediction)):
+            print("Warning: Model returned NaN values. Check input normalization or model parameters.")
+            predicted_label = "Error: Model returned NaN values"
+        else:
+            predicted_label = labels[np.argmax(prediction)]
+            print(f"Predicted label: {predicted_label}")
     
         return jsonify({"prediction": predicted_label})
 
