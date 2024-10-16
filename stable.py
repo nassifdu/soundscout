@@ -31,7 +31,7 @@ def process_audio(audio_data, samplerate):
         print(f"Audio data padded to {required_length} samples")
 
     # Generate the spectrogram
-    _, _, spec = spectrogram(audio_data, samplerate, nperseg=min(512, len(audio_data)))
+    _, _, spec = spectrogram(audio_data, samplerate, nperseg=min(256, len(audio_data)))
     print(f"Spectrogram shape: {spec.shape}")
 
     # Flatten the spectrogram and ensure it matches the required length
@@ -43,20 +43,19 @@ def process_audio(audio_data, samplerate):
     # Normalize the spectrogram
     max_val = np.max(flat_spec)
     min_val = np.min(flat_spec)
-    if max_val > min_val:
+    if max_val != min_val:  # Prevent division by zero or very small range
         flat_spec = (flat_spec - min_val) / (max_val - min_val + 1e-9)
-        flat_spec = np.clip(flat_spec, 0, 1)  # Clip to ensure stability
-        print("Spectrogram normalized and clipped")
+        print("Spectrogram normalized")
     else:
         print("Warning: Spectrogram has zero variation. Skipping normalization.")
 
     # Return the processed audio data as a tensor input for the model
     return np.expand_dims(flat_spec, axis=0).astype(np.float32)
 
-# Convert 3gp to mp3 using ffmpeg-python
-def convert_3gp_to_mp3(input_path, output_path):
+# Convert 3gp to wav using ffmpeg-python
+def convert_3gp_to_wav(input_path, output_path):
     try:
-        ffmpeg.input(input_path).output(output_path).overwrite_output().run(capture_stdout=True, capture_stderr=True)
+        ffmpeg.input(input_path).output(output_path, format='wav').overwrite_output().run(capture_stdout=True, capture_stderr=True)
         print(f"Conversion successful! Saved as: {output_path}")
     except ffmpeg.Error as e:
         print(f"Error occurred during conversion: {e.stderr.decode()}")
@@ -75,16 +74,16 @@ def predict():
         print(f"Uploaded file saved as: {temp_3gp.name}")
     
     try:
-        # Convert .3gp to .mp3 using a unique temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_mp3:
-            mp3_path = temp_mp3.name
+        # Convert .3gp to .wav using a unique temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_wav:
+            wav_path = temp_wav.name
 
         # Perform the conversion
-        convert_3gp_to_mp3(temp_3gp.name, mp3_path)
+        convert_3gp_to_wav(temp_3gp.name, wav_path)
 
-        # Read the converted .mp3 file using soundfile
-        audio_data, samplerate = sf.read(mp3_path)
-        print(f"Audio data read from mp3 file. Samplerate: {samplerate}, Length: {len(audio_data)}")
+        # Read the converted .wav file using soundfile
+        audio_data, samplerate = sf.read(wav_path)
+        print(f"Audio data read from wav file. Samplerate: {samplerate}, Length: {len(audio_data)}")
 
         # Process and make prediction
         input_data = process_audio(audio_data, samplerate)
@@ -93,15 +92,10 @@ def predict():
         interpreter.invoke()
         prediction = interpreter.get_tensor(interpreter.get_output_details()[0]['index'])
         print(f"Model prediction output: {prediction}")
-
-        # Introduce a detection threshold to filter predictions
-        detection_threshold = 0.3
+        
         if np.any(np.isnan(prediction)):
             print("Warning: Model returned NaN values. Check input normalization or model parameters.")
             predicted_label = "Error: Model returned NaN values"
-        elif np.max(prediction) < detection_threshold:
-            print(f"Prediction confidence below threshold ({detection_threshold}). Returning 'Unknown'.")
-            predicted_label = "Unknown"
         else:
             predicted_label = labels[np.argmax(prediction)]
             print(f"Predicted label: {predicted_label}")
@@ -116,9 +110,9 @@ def predict():
         # Clean up temporary files
         os.remove(temp_3gp.name)
         print(f"Deleted temporary file: {temp_3gp.name}")
-        if 'mp3_path' in locals() and os.path.exists(mp3_path):
-            os.remove(mp3_path)
-            print(f"Deleted temporary file: {mp3_path}")
+        if 'wav_path' in locals() and os.path.exists(wav_path):
+            os.remove(wav_path)
+            print(f"Deleted temporary file: {wav_path}")
 
 # Run the app on your local machine
 if __name__ == '__main__':
