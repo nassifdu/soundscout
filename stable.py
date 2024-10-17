@@ -1,83 +1,100 @@
-from flask import Flask, request, jsonify
+import os
 import numpy as np
-import tensorflow as tf
 import soundfile as sf
-from scipy.signal import spectrogram
+import scipy.signal
+import subprocess
+from flask import Flask, request, jsonify
+import tensorflow as tf
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# Load TFLite model and allocate tensors
+# Load TensorFlow Lite model
+print("Loading TensorFlow Lite model...")
 interpreter = tf.lite.Interpreter(model_path="soundclassifier_with_metadata.tflite")
 interpreter.allocate_tensors()
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
+print(f"Model loaded. Input details: {input_details}, Output details: {output_details}")
 
 # Load labels
+print("Loading labels...")
 with open("labels.txt", "r") as f:
-    labels = [line.strip() for line in f.readlines()]
+    labels = [line.strip() for line in f]
+print(f"Labels loaded: {labels}")
 
-# Preprocess audio for model input
-def process_audio(audio_data, samplerate):
-    print("--- Preprocessing Audio ---")
-    print(f"Audio data length: {len(audio_data)}")
-    print(f"Samplerate: {samplerate}")
+# Function to convert audio to the required .wav format
+def convert_to_wav(input_file, output_file):
+    print(f"Converting {input_file} to {output_file} with ffmpeg...")
+    subprocess.run([
+        'ffmpeg', '-y', '-i', input_file, '-ar', '16000', '-ac', '1', output_file
+    ], check=True)
+    print("Conversion completed.")
 
-    if len(audio_data) < samplerate:
-        print("Padding audio data to match samplerate...")
-        audio_data = np.pad(audio_data, (0, max(0, samplerate - len(audio_data))), mode='constant')
-        print(f"Padded audio data length: {len(audio_data)}")
-    else:
-        print("Audio data length is sufficient, no padding needed.")
+# Function to preprocess the audio file for TensorFlow Lite model
+def preprocess_audio(file_path):
+    print(f"Preprocessing audio file {file_path}...")
+    audio_data, sample_rate = sf.read(file_path)
+    print(f"Original sample rate: {sample_rate}, Audio shape: {audio_data.shape}")
 
-    # Generate the spectrogram
-    _, _, spec = spectrogram(audio_data, samplerate, nperseg=min(256, len(audio_data)))
-    print(f"Spectrogram shape: {spec.shape}")
+    if len(audio_data.shape) > 1:
+        print("Converting stereo to mono...")
+        audio_data = np.mean(audio_data, axis=1)
+    if sample_rate != 16000:
+        print("Resampling audio to 16kHz...")
+        audio_data = scipy.signal.resample(audio_data, int(16000 * len(audio_data) / sample_rate))
+    audio_data = audio_data / np.max(np.abs(audio_data))
+    print(f"Audio data after preprocessing: {audio_data[:10]}... (showing first 10 samples)")
+    return np.array(audio_data, dtype=np.float32)
 
-    # Flatten the spectrogram to match model input
-    flat_spec = spec.flatten()
-    if len(flat_spec) < 44032:
-        print("Padding flattened spectrogram...")
-        flat_spec = np.pad(flat_spec, (0, 44032 - len(flat_spec)), mode='constant')
-    elif len(flat_spec) > 44032:
-        print("Trimming flattened spectrogram...")
-        flat_spec = flat_spec[:44032]
-    print(f"Final flattened spectrogram length: {len(flat_spec)}")
-
-    return np.expand_dims(flat_spec, axis=0).astype(np.float32)
-
-# Define a route for POST requests
+# Define POST endpoint for audio prediction
 @app.route('/predict', methods=['POST'])
 def predict():
     if 'file' not in request.files:
-        print("Error: No file provided in the request.")
-        return jsonify({"error": "No file provided"}), 400
+        print("No file part in request.")
+        return jsonify({"error": "No file part"}), 400
 
     file = request.files['file']
-    print(f"Received file: {file.filename}")
-    
+    input_path = "/tmp/uploaded_audio.gp3"
+    wav_path = "/tmp/converted_audio.wav"
+    file.save(input_path)
+    print(f"File saved to {input_path}.")
+
     try:
-        # Read the audio data from the file
-        audio_data, samplerate = sf.read(file)
-        print(f"Audio data read. Length: {len(audio_data)}, Samplerate: {samplerate}")
-
-        # Process the audio and make prediction
-        input_data = process_audio(audio_data, samplerate)
-        print(f"Input data shape: {input_data.shape}")
-        
-        interpreter.set_tensor(interpreter.get_input_details()[0]['index'], input_data)
-        interpreter.invoke()
-        prediction = interpreter.get_tensor(interpreter.get_output_details()[0]['index'])
-        print(f"Model prediction output: {prediction}")
-
-        predicted_label = labels[np.argmax(prediction)]
-        print(f"Predicted label: {predicted_label}")
-    
-        return jsonify({"prediction": predicted_label})
-
+        convert_to_wav(input_path, wav_path)
     except Exception as e:
-        print(f"Error during prediction: {str(e)}")
-        return jsonify({"error": f"Failed to process audio: {str(e)}"}), 500
+        print(f"Error during conversion: {str(e)}")
+        return jsonify({"error": f"Failed to convert file: {str(e)}"}), 500
 
-# Run the app on your local machine
+    try:
+        audio_data = preprocess_audio(wav_path)
+        audio_data = np.expand_dims(audio_data, axis=0)
+        print(f"Audio data shape after expanding dimensions: {audio_data.shape}")
+    except Exception as e:
+        print(f"Error during preprocessing: {str(e)}")
+        return jsonify({"error": f"Failed to preprocess audio: {str(e)}"}), 500
+
+    try:
+        interpreter.set_tensor(input_details[0]['index'], audio_data)
+        print("Running inference...")
+        interpreter.invoke()
+        output_data = interpreter.get_tensor(output_details[0]['index'])
+        print(f"Inference output: {output_data}")
+    except Exception as e:
+        print(f"Error during model inference: {str(e)}")
+        return jsonify({"error": f"Model inference failed: {str(e)}"}), 500
+
+    prediction = np.argmax(output_data)
+    label = labels[prediction]
+    confidence = float(output_data[0][prediction])
+    print(f"Predicted label: {label} with confidence: {confidence}")
+
+    # Clean up temporary files
+    os.remove(input_path)
+    os.remove(wav_path)
+    print(f"Temporary files {input_path} and {wav_path} deleted.")
+
+    return jsonify({"label": label, "confidence": confidence})
+
 if __name__ == '__main__':
-    print("Starting Flask server...")
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host='0.0.0.0', port=8080)
