@@ -42,22 +42,23 @@ def preprocess_audio(file_path):
         print("Converting stereo to mono...")
         audio_data = np.mean(audio_data, axis=1)
 
-    # Ensure the sample rate is 44.1 kHz and trim/pad to 44032 samples
+    # Define the target sample count
     target_sample_count = 44032
     current_sample_count = len(audio_data)
 
-    # Trim or pad while ensuring data retains meaningful audio content
     if current_sample_count > target_sample_count:
+        # Trim using an energy-based selection
         print(f"Trimming audio from {current_sample_count} to {target_sample_count} samples.")
-        audio_data = audio_data[:target_sample_count]
+        energy = np.square(audio_data)
+        window_size = target_sample_count
+        max_energy_index = np.argmax([np.sum(energy[i:i + window_size]) for i in range(0, len(energy) - window_size + 1)])
+        audio_data = audio_data[max_energy_index:max_energy_index + window_size]
+        print(f"Selected segment from index {max_energy_index} to {max_energy_index + window_size}")
     elif current_sample_count < target_sample_count:
         print(f"Padding audio from {current_sample_count} to {target_sample_count} samples.")
-        # Padding with random low-amplitude noise if entirely silent
-        if np.max(np.abs(audio_data)) == 0:
-            audio_data = np.concatenate((audio_data, np.random.uniform(-0.01, 0.01, target_sample_count - current_sample_count)))
-        else:
-            padding = np.zeros(target_sample_count - current_sample_count)
-            audio_data = np.concatenate((audio_data, padding))
+        # Pad with zeros if the audio is shorter
+        padding = np.zeros(target_sample_count - current_sample_count)
+        audio_data = np.concatenate((audio_data, padding))
 
     # Normalize with an epsilon to avoid division by zero
     epsilon = 1e-10
@@ -70,6 +71,7 @@ def preprocess_audio(file_path):
         print("Warning: The audio data appears to be entirely silent after processing.")
 
     return np.array(audio_data, dtype=np.float32)
+
 
 # Define POST endpoint for audio prediction
 @app.route('/predict', methods=['POST'])
