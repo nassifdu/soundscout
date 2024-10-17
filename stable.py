@@ -27,7 +27,7 @@ print(f"Labels loaded: {labels}")
 def convert_to_wav(input_file, output_file):
     print(f"Converting {input_file} to {output_file} with ffmpeg...")
     subprocess.run([
-        'ffmpeg', '-y', '-i', input_file, '-ar', '16000', '-ac', '1', output_file
+        'ffmpeg', '-y', '-i', input_file, '-ar', '44100', '-ac', '1', output_file
     ], check=True)
     print("Conversion completed.")
 
@@ -40,11 +40,22 @@ def preprocess_audio(file_path):
     if len(audio_data.shape) > 1:
         print("Converting stereo to mono...")
         audio_data = np.mean(audio_data, axis=1)
-    if sample_rate != 16000:
-        print("Resampling audio to 16kHz...")
-        audio_data = scipy.signal.resample(audio_data, int(16000 * len(audio_data) / sample_rate))
+
+    # Ensure the sample rate is 44.1 kHz and trim/pad to 44032 samples
+    target_sample_count = 44032
+    current_sample_count = len(audio_data)
+    
+    if current_sample_count > target_sample_count:
+        print(f"Trimming audio from {current_sample_count} to {target_sample_count} samples.")
+        audio_data = audio_data[:target_sample_count]
+    elif current_sample_count < target_sample_count:
+        print(f"Padding audio from {current_sample_count} to {target_sample_count} samples.")
+        padding = np.zeros(target_sample_count - current_sample_count)
+        audio_data = np.concatenate((audio_data, padding))
+    
+    # Ensure audio is normalized between -1.0 and 1.0
     audio_data = audio_data / np.max(np.abs(audio_data))
-    print(f"Audio data after preprocessing: {audio_data[:10]}... (showing first 10 samples)")
+    print(f"Processed audio data: {audio_data[:10]}... (showing first 10 samples)")
     return np.array(audio_data, dtype=np.float32)
 
 # Define POST endpoint for audio prediction
@@ -68,7 +79,7 @@ def predict():
 
     try:
         audio_data = preprocess_audio(wav_path)
-        audio_data = np.expand_dims(audio_data, axis=0)
+        audio_data = np.expand_dims(audio_data, axis=0)  # Add batch dimension
         print(f"Audio data shape after expanding dimensions: {audio_data.shape}")
     except Exception as e:
         print(f"Error during preprocessing: {str(e)}")
@@ -96,5 +107,6 @@ def predict():
 
     return jsonify({"label": label, "confidence": confidence})
 
+# Run Flask app on port 8080
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
