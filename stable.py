@@ -53,8 +53,10 @@ def preprocess_audio(file_path):
         padding = np.zeros(target_sample_count - current_sample_count)
         audio_data = np.concatenate((audio_data, padding))
     
-    # Ensure audio is normalized between -1.0 and 1.0
-    audio_data = audio_data / np.max(np.abs(audio_data))
+    # Normalize audio data with epsilon to avoid division by zero
+    epsilon = 1e-10
+    max_val = np.max(np.abs(audio_data))
+    audio_data = audio_data / (max_val + epsilon)
     print(f"Processed audio data: {audio_data[:10]}... (showing first 10 samples)")
     return np.array(audio_data, dtype=np.float32)
 
