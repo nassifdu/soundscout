@@ -37,6 +37,7 @@ def preprocess_audio(file_path):
     audio_data, sample_rate = sf.read(file_path)
     print(f"Original sample rate: {sample_rate}, Audio shape: {audio_data.shape}")
 
+    # Convert to mono if necessary
     if len(audio_data.shape) > 1:
         print("Converting stereo to mono...")
         audio_data = np.mean(audio_data, axis=1)
@@ -44,20 +45,30 @@ def preprocess_audio(file_path):
     # Ensure the sample rate is 44.1 kHz and trim/pad to 44032 samples
     target_sample_count = 44032
     current_sample_count = len(audio_data)
-    
+
+    # Trim or pad while ensuring data retains meaningful audio content
     if current_sample_count > target_sample_count:
         print(f"Trimming audio from {current_sample_count} to {target_sample_count} samples.")
         audio_data = audio_data[:target_sample_count]
     elif current_sample_count < target_sample_count:
         print(f"Padding audio from {current_sample_count} to {target_sample_count} samples.")
-        padding = np.zeros(target_sample_count - current_sample_count)
-        audio_data = np.concatenate((audio_data, padding))
-    
-    # Normalize audio data with epsilon to avoid division by zero
+        # Padding with random low-amplitude noise if entirely silent
+        if np.max(np.abs(audio_data)) == 0:
+            audio_data = np.concatenate((audio_data, np.random.uniform(-0.01, 0.01, target_sample_count - current_sample_count)))
+        else:
+            padding = np.zeros(target_sample_count - current_sample_count)
+            audio_data = np.concatenate((audio_data, padding))
+
+    # Normalize with an epsilon to avoid division by zero
     epsilon = 1e-10
-    max_val = np.max(np.abs(audio_data))
-    audio_data = audio_data / (max_val + epsilon)
+    max_val = np.max(np.abs(audio_data)) + epsilon
+    audio_data = audio_data / max_val
     print(f"Processed audio data: {audio_data[:10]}... (showing first 10 samples)")
+
+    # Additional check for silence in the processed audio
+    if np.all(audio_data == 0):
+        print("Warning: The audio data appears to be entirely silent after processing.")
+
     return np.array(audio_data, dtype=np.float32)
 
 # Define POST endpoint for audio prediction
