@@ -1,5 +1,6 @@
 0 Background Noise
-1 airport
-2 baby
-3 phone
-4 siren
+1 airport fala
+2 airportsirene
+3 baby
+4 sirene
+5 telefone
