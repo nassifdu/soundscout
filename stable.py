@@ -1,3 +1,5 @@
+# stable script for audio recognition
+
 import os
 import numpy as np
 import soundfile as sf
